@@ -10,6 +10,7 @@ globals [
   chemical-threshold ;; how small does a chemical need to be for us to set it to zero? (avoid floating point underflow)
   scent-id-count ;; unique id for each colony
   num-kills ;; how many kills have there been? for plotting/testing
+  num-coop ;; how many coops have there been? for plotting /testing
 ]
 
 workers-own
@@ -33,6 +34,7 @@ queens-own
   scent-id ;; unique string for the scent
   fight-prob ;; how likely are they to fight?
   coop-prob ;; if they don't fight, how likely are they to cooperate?
+  ticks-left ;; max lifespan enforcer
 ]
 
 chunks-own
@@ -56,8 +58,6 @@ patches-own [
 ;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; WORLD PARAMS ;;;
 ;;; initial-population = how many workers to start with
-;;; nest-diffusion = [0-100] what percent of nest chemical should diffuse to neighbors at each step
-;;; nest-evaporation = [0-100] what percent of the nest smell evaporates every tick
 ;;; chunk-size = how big should each chunk of food be
 ;;; chunk-refresh-threshold = how little food needs to be in a chunk to start refresh timer?
 ;;; chunk-refresh-time = how many ticks should a chunk wait before replenishing
@@ -128,15 +128,17 @@ to setup-queens
   set num-queens initial-queens
   create-queens num-queens
   ask queens [
-    set xcor random world-width
-    set ycor random world-height
+    set xcor (random world-width) - world-width / 2
+    set ycor (random world-height) - world-height / 2
     set size 10
     set heading 0
     set energy 1000
     set scent-id scent-id-count
     set scent-id-count scent-id-count + 1
-    set fight-prob random 10
-    set coop-prob random 10
+    set fight-prob 6
+    set coop-prob 6
+    set ticks-left max-colony-lifespan + random max-colony-lifespan / 2
+    set color scale-color red fight-prob 100 0
   ]
 end
 
@@ -149,7 +151,6 @@ to spawn-baby
     [
       set size 2
       set heading random 360
-      set color red
       set energy scout-lifespan
       set state "explore"
       set mother myself
@@ -161,7 +162,6 @@ to spawn-baby
     [
       set size 2
       set heading random 360
-      set color red
       set energy worker-lifespan
       set state "patrol"
       set mother myself
@@ -311,7 +311,7 @@ to update-scout-state
   ]
   if state = "recruit"
   [
-    if distance mother < home-dist-threshold
+    if distance mother < home-dist-threshold / 2
     [
       set state "explore"
     ]
@@ -326,7 +326,7 @@ to start-fight [others]
   let matriarch mother
   ask others
   [
-    if matriarch != mother
+    if matriarch != mother and not ive-died
     [
       let i-fight random 100 < my-fight-prob
       ifelse i-fight
@@ -336,32 +336,40 @@ to start-fight [others]
         ifelse other-fight
         [
           ;; Both ants fight
-          ifelse random 2 = 1
-          [
-            ;; I live, other dies
-            set num-kills num-kills + 1
-            ask matriarch
+          if not ive-died [
+            ifelse random 2 = 1
             [
-              set energy energy + fight-win-bonus
+              ;; I live, other dies
+              set num-kills num-kills + 1
+              ask matriarch
+              [
+                set energy energy + fight-win-bonus
+              ]
+              die
             ]
-            die
-          ]
-          [
-            ;; I die, other lives
-            set ive-died true
-            set num-kills num-kills + 1
-            ask mother
             [
-              set energy energy + fight-win-bonus
+              ;; I die, other lives
+              set ive-died true
+              ask mother
+              [
+                set energy energy + fight-win-bonus
+              ]
             ]
           ]
         ]
         [
           ;; I fight and they ignore
-          set num-kills num-kills + 1
-          ask matriarch
+          ;; NOTE: Need to add variability here to disincentivize
+          ifelse random 100 < 80
           [
-            set energy energy + fight-win-bonus
+            set num-kills num-kills + 1
+            ask matriarch
+            [
+              set energy energy + fight-win-bonus
+            ]
+          ]
+          [
+            set ive-died true
           ]
           die
         ]
@@ -383,6 +391,7 @@ to start-fight [others]
             [
               set energy energy + coop-both-bonus
             ]
+            set num-coop num-coop + 1
           ]
           [
             ;; I get scammed
@@ -452,7 +461,7 @@ end
 to dropoff-food
   ask mother
   [
-    set energy energy + 1
+    set energy energy + food-val
   ]
 end
 
@@ -574,10 +583,18 @@ to split-colony
     set dist distancexy new-x new-y
   ]
   let mycolor color
-  let agg-diff (random 10) - 5
-  let nice-diff (random 10) - 5
+  let agg-diff (random 20) - 10
+  let nice-diff (random 20) - 10
   let new-fight-prob fight-prob + agg-diff
   let new-coop-prob coop-prob + nice-diff
+  if new-fight-prob < 0
+  [
+    set new-fight-prob 0
+  ]
+  if new-coop-prob < 0
+  [
+    set new-coop-prob 0
+  ]
   hatch-queens 1 [
     set xcor new-x
     set ycor new-y
@@ -588,20 +605,24 @@ to split-colony
     set scent-id-count scent-id-count + 1
     set fight-prob new-fight-prob
     set coop-prob new-coop-prob
+    set ticks-left max-colony-lifespan
+    set color scale-color red fight-prob 100 0
     repeat 100 [ spawn-baby ]
   ]
   ;; Kill 1/4 of the kids
   let matriarch self
-  ask scouts
+  let myscouts scouts with [mother = self]
+  let myworkers workers with [mother = self]
+  ask myscouts
   [
-    if mother = matriarch and random 3 = 1
+    if random 3 = 1
     [
       die
     ]
   ]
-  ask workers
+  ask myworkers
   [
-    if mother = matriarch and random 3 = 1
+    if random 3 = 1
     [
       die
     ]
@@ -612,7 +633,7 @@ end
 to update-queens
   ask queens
   [
-    if energy < 0
+    if energy < 0 or ticks-left < 0
     [
       queen-death
     ]
@@ -626,6 +647,8 @@ to update-queens
       split-colony
     ]
     set energy energy - 1
+    set ticks-left ticks-left - 1
+    set color scale-color red fight-prob 100 0
   ]
 end
 
@@ -642,7 +665,7 @@ to custom-evaporation
   ]
 end
 
-;; Specifically handles diffusion and evaporation of each frame
+;; Specifically handles evaporation of each frame
 to update-scents
   ask patches
   [
@@ -716,9 +739,13 @@ to go  ;; forever button
   update-queens
   update-chunks
   update-patches
-  plot-queen-energy
-  plot-ant-count
-  plot-average-aggresiveness
+  if ticks mod 25 = 1
+  [
+    plot-queen-energy
+    plot-ant-count
+    plot-average-aggresiveness
+    plot-average-cooperation
+  ]
   tick
 end
 
@@ -747,29 +774,104 @@ to plot-ant-count
   ]
 end
 
-to plot-average-aggresiveness
-  set-current-plot "avg-agg"
+to-report min-aggresiveness
+  ifelse count queens > 0
+  [
+    report min [fight-prob] of queens
+  ]
+  [
+    report -1
+  ]
+end
+
+to-report max-aggresiveness
+  ifelse count queens > 0
+  [
+    report max [fight-prob] of queens
+  ]
+  [
+    report -1
+  ]
+end
+
+to-report average-aggresiveness
   let agg-total 0
   ask queens [
     set agg-total agg-total + fight-prob
   ]
-  create-temporary-plot-pen "data"
-  set-plot-pen-color black
-  plotxy ticks agg-total / (count queens)
+  ifelse count queens > 0
+  [
+    report agg-total / (count queens)
+  ]
+  [
+    report 0
+  ]
 end
 
-to-report test
-  report 4
+to plot-average-aggresiveness
+  set-current-plot "avg-agg"
+  create-temporary-plot-pen "data"
+  set-plot-pen-color black
+  plotxy ticks average-aggresiveness
+end
+
+to-report min-cooperation
+  ifelse count queens > 0
+  [
+    report min [coop-prob] of queens
+  ]
+  [
+    report -1
+  ]
+end
+
+to-report max-cooperation
+  ifelse count queens > 0
+  [
+    report max [coop-prob] of queens
+  ]
+  [
+    report -1
+  ]
+end
+
+to-report average-cooperation
+  let coop-total 0
+  ask queens [
+    set coop-total coop-total + coop-prob
+  ]
+  ifelse count queens > 0
+  [
+    report coop-total / (count queens)
+  ]
+  [
+    report 0
+  ]
+end
+
+to plot-average-cooperation
+  set-current-plot "avg-coop"
+  create-temporary-plot-pen "data"
+  set-plot-pen-color black
+  plotxy ticks average-cooperation
+end
+
+to-report num-ants
+  report (count scouts) + (count workers)
+end
+
+to-report num-food
+  report count patches with [food > 0]
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
-244
-272
-766
-795
+247
+304
+498
+556
 -1
 -1
-2.0
+3.74
 1
 10
 1
@@ -779,10 +881,10 @@ GRAPHICS-WINDOW
 1
 1
 1
--128
-128
--128
-128
+-32
+32
+-32
+32
 1
 1
 1
@@ -790,45 +892,15 @@ ticks
 30.0
 
 SLIDER
-16
-337
-194
-370
+20
+197
+198
+230
 proportion-workers
 proportion-workers
 0
 100
 75.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-24
-47
-197
-80
-nest-diffusion
-nest-diffusion
-0
-100
-36.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-24
-94
-197
-127
-nest-evaporation
-nest-evaporation
-0
-100
-4.0
 1
 1
 NIL
@@ -869,15 +941,15 @@ NIL
 1
 
 SLIDER
-16
-288
-204
-321
+20
+148
+208
+181
 home-dist-threshold
 home-dist-threshold
 0
 10
-2.4
+5.0
 0.1
 1
 NIL
@@ -894,10 +966,10 @@ Chemical Params
 1
 
 TEXTBOX
-18
-256
-168
-278
+22
+116
+172
+138
 Ant Params
 18
 0.0
@@ -942,7 +1014,7 @@ chunk-refresh-time
 chunk-refresh-time
 0
 10000
-2700.0
+2000.0
 100
 1
 NIL
@@ -959,25 +1031,10 @@ Chunk Params
 1
 
 SLIDER
-20
-145
-192
-178
-food-diffusion
-food-diffusion
-0
-100
-4.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-21
-193
-193
-226
+25
+53
+197
+86
 food-evaporation
 food-evaporation
 0
@@ -989,45 +1046,45 @@ NIL
 HORIZONTAL
 
 SLIDER
-17
-431
-189
-464
+21
+291
+193
+324
 initial-queens
 initial-queens
 0
 10
-5.0
+2.0
 1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-18
-478
-191
-511
+22
+338
+195
+371
 scout-lifespan
 scout-lifespan
 0
 1000
-576.0
+570.0
 1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-17
-527
-190
-560
+21
+387
+194
+420
 worker-lifespan
 worker-lifespan
 0
 1000
-576.0
+570.0
 1
 1
 NIL
@@ -1051,10 +1108,10 @@ false
 PENS
 
 SLIDER
-18
-576
-190
-609
+22
+436
+194
+469
 initial-nest-energy
 initial-nest-energy
 0
@@ -1066,40 +1123,25 @@ NIL
 HORIZONTAL
 
 SLIDER
-19
-623
-191
-656
-food-value
-food-value
-0
-10
-8.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-19
-668
-191
-701
+23
+528
+195
+561
 birth-threshold
 birth-threshold
 0
 2000
-1000.0
+800.0
 100
 1
 NIL
 HORIZONTAL
 
 SLIDER
-18
-711
-190
-744
+22
+571
+194
+604
 birth-cost
 birth-cost
 0
@@ -1139,10 +1181,10 @@ show-trails
 -1000
 
 SLIDER
-14
-380
-186
-413
+18
+240
+190
+273
 initial-ants
 initial-ants
 0
@@ -1154,30 +1196,30 @@ NIL
 HORIZONTAL
 
 SLIDER
-20
-755
-192
-788
+24
+615
+196
+648
 split-threshold
 split-threshold
 0
 5000
-2000.0
+1600.0
 100
 1
 NIL
 HORIZONTAL
 
 SLIDER
-19
-799
-191
-832
+23
+659
+195
+692
 split-distance
 split-distance
 0
 100
-65.0
+50.0
 5
 1
 NIL
@@ -1219,27 +1261,12 @@ false
 PENS
 
 SLIDER
-20
-854
-193
-887
+24
+714
+197
+747
 fight-win-bonus
 fight-win-bonus
-0
-10
-3.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-217
-863
-390
-896
-coop-both-bonus
-coop-both-bonus
 0
 10
 2.0
@@ -1249,10 +1276,25 @@ NIL
 HORIZONTAL
 
 SLIDER
-412
-864
-585
-897
+26
+821
+199
+854
+coop-both-bonus
+coop-both-bonus
+0
+10
+2.5
+0.5
+1
+NIL
+HORIZONTAL
+
+SLIDER
+19
+866
+192
+899
 coop-one-cost
 coop-one-cost
 0
@@ -1262,6 +1304,71 @@ coop-one-cost
 1
 NIL
 HORIZONTAL
+
+PLOT
+1046
+327
+1246
+477
+avg-coop
+NIL
+NIL
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+
+SLIDER
+21
+770
+205
+803
+max-colony-lifespan
+max-colony-lifespan
+1000
+4000
+3000.0
+500
+1
+NIL
+HORIZONTAL
+
+SLIDER
+23
+478
+195
+511
+food-val
+food-val
+0.5
+1.5
+1.0
+0.1
+1
+NIL
+HORIZONTAL
+
+PLOT
+1080
+555
+1280
+705
+num-coop
+NIL
+NIL
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"default" 1.0 0 -16777216 true "" "plot num-coop"
 
 @#$#@#$#@
 ## WHAT IS IT?

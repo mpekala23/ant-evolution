@@ -1,23 +1,14 @@
-extensions [ table ]
-
 breed [ workers worker ]
 breed [ scouts scout ]
 breed [ queens queen ]
 breed [ chunks chunk ]
 
-globals [
-  num-queens ;; how many queens are there right now?
-  chemical-threshold ;; how small does a chemical need to be for us to set it to zero? (avoid floating point underflow)
-  scent-id-count ;; unique id for each colony
-  num-kills ;; how many kills have there been? for plotting/testing
-]
-
 workers-own
 [
   energy ;; ~ health. Decreases every tick. 0 = death
-  state ;; What is the ant doing right now?
-  mother ;; Who birthed me? Useful for knowing when I'm home
-  has-food ;; Am I carrying food right now?
+  state ;; what is the ant doing right now?
+  mother ;; who birthed me? Useful for knowing when I'm home
+  test ;; useful variable to set on workers to test stuff
 ]
 
 scouts-own
@@ -30,9 +21,6 @@ scouts-own
 queens-own
 [
   energy ;; ~ health of the colony
-  scent-id ;; unique string for the scent
-  fight-prob ;; how likely are they to fight?
-  coop-prob ;; if they don't fight, how likely are they to cooperate?
 ]
 
 chunks-own
@@ -44,7 +32,8 @@ chunks-own
 ]
 
 patches-own [
-  food-chemicals ;;
+  food-chemical ;; left by ants when they are coming back to nest
+  nest-chemical ;; left by ants as they are leaving the nest
   food ;; amount of food on this patch (0 or 1)
   chunk-x ;; x value of the chunk that this patch is a part of
   chunk-y ;; y value of the chunk that this patch is a part of
@@ -64,6 +53,7 @@ patches-own [
 ;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; ANT PARAMS ;;;
 ;;; home-dist-threshold = [0-10] how close does an ant need to be to home to deposit / grab food
+;;; explore-scent-threshold = how much does something need to smell to be recognized?
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Setup procedures ;;;
@@ -85,13 +75,11 @@ end
 
 ;; Puts the patches in the proper initial state
 to setup-patches
-  set chemical-threshold 0.0001
   ask patches
   [
     ;; Assign to the proper chunk
     set chunk-x get-chunk-x self
     set chunk-y get-chunk-y self
-    set food-chemicals table:make
   ]
 end
 
@@ -125,66 +113,12 @@ end
 
 ;; Initializes the queens
 to setup-queens
-  set num-queens initial-queens
-  create-queens num-queens
+  create-queens 1
   ask queens [
-    set xcor random world-width
-    set ycor random world-height
+    set color yellow
     set size 10
     set heading 0
     set energy 1000
-    set scent-id scent-id-count
-    set scent-id-count scent-id-count + 1
-    set fight-prob random 10
-    set coop-prob random 10
-  ]
-end
-
-;; Handles spawning an ant for a queen
-to spawn-baby
-  let mycolor color
-  ifelse random 100 > proportion-workers
-  [
-    hatch-scouts 1
-    [
-      set size 2
-      set heading random 360
-      set color red
-      set energy scout-lifespan
-      set state "explore"
-      set mother myself
-      set color mycolor
-    ]
-  ]
-  [
-    hatch-workers 1
-    [
-      set size 2
-      set heading random 360
-      set color red
-      set energy worker-lifespan
-      set state "patrol"
-      set mother myself
-      set color mycolor
-    ]
-  ]
-end
-
-;; Hatches scouts under each queen
-to setup-scouts
-  ask queens
-  [
-    let mycolor color
-    hatch-scouts initial-ants * ((100 - proportion-workers) / 100)
-    [
-      set size 2
-      set heading random 360
-      set color red
-      set energy random scout-lifespan
-      set state "explore"
-      set mother myself
-      set color mycolor
-    ]
   ]
 end
 
@@ -192,28 +126,24 @@ end
 to setup-workers
   ask queens
   [
-    let mycolor color
-    hatch-workers initial-ants * ((proportion-workers) / 100)
+    hatch-workers initial-population
     [
       set size 2
       set heading random 360
       set color red
-      set energy random worker-lifespan
-      set state "patrol"
+      set energy 100
+      set state 0
       set mother myself
-      set color mycolor
     ]
   ]
 end
 
 ;; General setup
 to setup
-  set scent-id-count 0
   clear-all
   setup-chunks
   set-default-shape turtles "bug"
   setup-queens
-  setup-scouts
   setup-workers
   reset-ticks
 end
@@ -261,350 +191,111 @@ to wiggle
   if not can-move? 1 [ rt 180 ]
 end
 
-;; Get the food scent for an id on a specific patch
-to-report get-food-scent [sid p]
-  let m [food-chemicals] of p
-  report (table:get-or-default m sid 0)
-end
-
 ;; Get the food scent at a specific angle
-to-report food-scent-at-angle [sid angle]
+to-report food-scent-at-angle [angle]
   let p patch-right-and-ahead angle 1
   if p = nobody [ report 0 ]
-  report get-food-scent sid p
+  report [food-chemical] of p
 end
 
-;; Helper function for an ant to return home
-to go-home
-  face mother
+;; Get the home scent at a specific angle
+to-report nest-scent-at-angle [angle]
+  let p patch-right-and-ahead angle 1
+  if p = nobody [ report 0 ]
+  report [nest-chemical] of p
+end
+
+;; Updates the ant state machine
+to update-state
+  if state = 0
+  [
+    ;; Randomly walking
+    if food > 0
+    [
+      ;; -> Start carrying food
+      set state 2
+      eat-patch patch-here
+      rt 180
+    ]
+    if food-chemical > explore-scent-threshold
+    [
+      ;; -> Start following food scents
+      set state 1
+    ]
+  ]
+  if state = 1
+  [
+    ;; Following food chemical
+  ]
+  if state = 2
+  [
+    ;; Following home chemical
+    if distance mother < home-dist-threshold
+    [
+      set state 0
+    ]
+  ]
+end
+
+;; Handle searching randomly
+to handle-state-0
+  wiggle
   fd 1
 end
 
-;; Helper function for an ant to follow food scent
-to go-food
-  let sid [scent-id] of mother
-  let scent-ahead food-scent-at-angle sid  0
-  let scent-right food-scent-at-angle sid 30
-  let scent-left  food-scent-at-angle sid -30
+;; Handle bringing food home
+to handle-state-2
+  let scent-ahead nest-scent-at-angle   0
+  let scent-right nest-scent-at-angle  45
+  let scent-left  nest-scent-at-angle -45
   if (scent-right > scent-ahead) or (scent-left > scent-ahead)
   [
     ifelse scent-right > scent-left
     [
-      rt 30
+      rt 45
     ]
     [
-      lt 30
+      lt 45
     ]
   ]
   fd 1
 end
 
-;; Update the scout state machine
-to update-scout-state
-  if state = "explore"
+;; Yeah this is ugly but at least it's clear
+to handle-state
+  if state = 0
   [
-    if food > 0
-    [
-      set state "recruit"
-      rt 180
-    ]
+    handle-state-0
   ]
-  if state = "recruit"
+  if state = 2
   [
-    if distance mother < home-dist-threshold
-    [
-      set state "explore"
-    ]
+    handle-state-2
   ]
 end
 
-;; To start a fight
-to start-fight [others]
-  let my-fight-prob [fight-prob] of mother
-  let my-coop-prob [coop-prob] of mother
-  let ive-died false
-  let matriarch mother
-  ask others
+;; Leaves behind whatever chemicals it should (home on way out, food on way back)
+to leave-breadcrumbs
+  ifelse state = 2
+  [ ] ;; Leave no trail when coming back with food
   [
-    if matriarch != mother
-    [
-      let i-fight random 100 < my-fight-prob
-      ifelse i-fight
-      [
-        let other-fight-prob [fight-prob] of mother
-        let other-fight random 100 < other-fight-prob
-        ifelse other-fight
-        [
-          ;; Both ants fight
-          ifelse random 2 = 1
-          [
-            ;; I live, other dies
-            set num-kills num-kills + 1
-            ask matriarch
-            [
-              set energy energy + fight-win-bonus
-            ]
-            die
-          ]
-          [
-            ;; I die, other lives
-            set ive-died true
-            set num-kills num-kills + 1
-            ask mother
-            [
-              set energy energy + fight-win-bonus
-            ]
-          ]
-        ]
-        [
-          ;; I fight and they ignore
-          set num-kills num-kills + 1
-          ask matriarch
-          [
-            set energy energy + fight-win-bonus
-          ]
-          die
-        ]
-      ]
-      [
-        let i-coop random 100 < my-coop-prob
-        if i-coop
-        [
-          let other-coop-prob [coop-prob] of mother
-          let other-coop random 100 < other-coop-prob
-          ifelse other-coop
-          [
-            ;; We both cooperate!
-            ask mother
-            [
-              set energy energy + coop-both-bonus
-            ]
-            ask matriarch
-            [
-              set energy energy + coop-both-bonus
-            ]
-          ]
-          [
-            ;; I get scammed
-            ask mother
-            [
-              set energy energy + coop-one-cost
-            ]
-            ask matriarch
-            [
-              set energy energy - coop-one-cost
-            ]
-          ]
-        ]
-      ]
-    ]
+    ;; set nest-chemical 1
   ]
-  if ive-died
-  [
-    set num-kills num-kills + 1
-    die
-  ]
-end
-
-;; Fights what it needs to
-to handle-fighting
-  let other-scouts scouts-here
-  let other-workers workers-here
-  start-fight other-scouts
-  start-fight other-workers
-
-end
-
-;; Performs a scout update
-to update-scout
-  ;; Behave according to state
-  if state = "explore"
-  [
-    wiggle
-    fd 1
-  ]
-  if state = "recruit"
-  [
-    go-home
-    let mom-id [scent-id] of mother
-    table:put food-chemicals mom-id 1
-  ]
-  ;; Update state
-  update-scout-state
-  ;; Look for fights/cooperation
-  handle-fighting
-  ;; Die if needed
-  if energy < 0
-  [
-    die
-  ]
-  set energy energy - 1
-end
-
-;; Updates all the scouts
-to update-scouts
-  ask scouts
-  [
-    update-scout
-  ]
-end
-
-to dropoff-food
-  ask mother
-  [
-    set energy energy + 1
-  ]
-end
-
-;; Updates the worker state
-to update-worker-state
-  let sid [scent-id] of mother
-  let p patch-here
-  let fval get-food-scent sid p
-  if state = "patrol"
-  [
-    if fval > 0.4
-    [
-      ;; Food scent has to be strong to start searching
-      set state "find"
-      face mother
-      rt 180
-    ]
-  ]
-  if state = "find"
-  [
-    if fval < chemical-threshold
-    [
-      ;; Give up once the scent is very small
-      set state "return"
-    ]
-    if food > 0
-    [
-      eat-patch patch-here
-      set has-food true
-      set state "return"
-    ]
-  ]
-  if state = "return"
-  [
-    if distance mother < home-dist-threshold
-    [
-      set state "patrol"
-      set has-food false
-      dropoff-food
-    ]
-    if has-food = true
-    [
-      table:put food-chemicals sid 1
-    ]
-  ]
-end
-
-;; Performs a worker update
-to update-worker
-  ;; Behave according to state
-  if state = "patrol"
-  [
-    ifelse distance mother > 10
-    [
-      face mother
-    ]
-    [
-      wiggle
-    ]
-    fd 1
-  ]
-  if state = "find"
-  [
-    go-food
-  ]
-  if state = "return"
-  [
-    go-home
-  ]
-  ;; Update state
-  update-worker-state
-  ;; Do fights/coops
-  handle-fighting
-  ;; Die if needed
-  if energy < 0
-  [
-    die
-  ]
-  set energy energy - 1
 end
 
 ;; Updates all of the worker ants calling the appropriate action and state update
 to update-workers
   ask workers
   [
-    update-worker
-  ]
-end
-
-to queen-death
-  let matriarch self
-  ask scouts
-  [
-    if mother = matriarch
+    leave-breadcrumbs
+    update-state
+    handle-state
+    set energy (energy - 1)
+    ;; Die if we run out of energy
+    if energy < 0
     [
-      die
+      ;; die
     ]
-  ]
-  ask workers
-  [
-    if mother = matriarch
-    [
-      die
-    ]
-  ]
-  die
-end
-
-;; Spawns a new colony by splitting this one
-to split-colony
-  set energy energy - 1000
-  let new-x random world-width
-  let new-y random world-height
-  let dist distancexy new-x new-y
-  while [dist > split-distance]
-  [
-    set new-x random world-width
-    set new-y random world-height
-    set dist distancexy new-x new-y
-  ]
-  let mycolor color
-  let agg-diff (random 10) - 5
-  let nice-diff (random 10) - 5
-  let new-fight-prob fight-prob + agg-diff
-  let new-coop-prob coop-prob + nice-diff
-  hatch-queens 1 [
-    set xcor new-x
-    set ycor new-y
-    set size 10
-    set heading 0
-    set energy 1000
-    set scent-id scent-id-count
-    set scent-id-count scent-id-count + 1
-    set fight-prob new-fight-prob
-    set coop-prob new-coop-prob
-    repeat 100 [ spawn-baby ]
-  ]
-  ;; Kill 1/4 of the kids
-  let matriarch self
-  ask scouts
-  [
-    if mother = matriarch and random 3 = 1
-    [
-      die
-    ]
-  ]
-  ask workers
-  [
-    if mother = matriarch and random 3 = 1
-    [
-      die
-    ]
+    set test distance mother
   ]
 end
 
@@ -612,41 +303,17 @@ end
 to update-queens
   ask queens
   [
-    if energy < 0
-    [
-      queen-death
-    ]
-    if energy > random birth-threshold
-    [
-      spawn-baby
-      set energy energy - birth-cost
-    ]
-    if energy > split-threshold
-    [
-      split-colony
-    ]
-    set energy energy - 1
-  ]
-end
-
-to custom-evaporation
-  foreach ( table:keys food-chemicals ) [ [key] ->
-    let existing table:get-or-default food-chemicals key 0
-    ifelse existing > chemical-threshold
-    [
-      table:put food-chemicals key existing * (100 - food-evaporation) / 100
-    ]
-    [
-      table:remove food-chemicals key
-    ]
+    set nest-chemical 100000
   ]
 end
 
 ;; Specifically handles diffusion and evaporation of each frame
 to update-scents
+  ;; nest-chemical
+  diffuse nest-chemical (nest-diffusion / 100)
   ask patches
   [
-    custom-evaporation
+    set nest-chemical ((100 - nest-evaporation) / 100) * nest-chemical
   ]
 end
 
@@ -657,20 +324,7 @@ to update-patch-color
     set pcolor blue
   ]
   [
-    ifelse show-trails
-    [
-      let maxval 0
-      foreach ( table:values food-chemicals ) [ [val] ->
-        if val > maxval
-        [
-          set maxval val
-        ]
-      ]
-      set pcolor scale-color yellow maxval chemical-threshold 1
-    ]
-    [
-      set pcolor black
-    ]
+    set pcolor scale-color green nest-chemical 0.1 5
   ]
 end
 
@@ -712,64 +366,51 @@ end
 
 to go  ;; forever button
   update-workers
-  update-scouts
   update-queens
   update-chunks
   update-patches
-  plot-queen-energy
-  plot-ant-count
-  plot-average-aggresiveness
   tick
 end
 
-;;;;;;;;;;;;;;;;;;;;;;
-;;;; PLOT SECTION ;;;;
-;;;;;;;;;;;;;;;;;;;;;;
 
-to plot-queen-energy
-  set-current-plot "nest-energies"
-  ask queens [
-    create-temporary-plot-pen (word who)
-    set-plot-pen-color color
-    plotxy ticks energy
-  ]
+
+
+
+
+
+
+
+
+
+
+to look-for-food  ;; turtle procedure
+  if food > 0
+  [ set color orange + 1     ;; pick up food
+    set food food - 1        ;; and reduce the food source
+    rt 180                   ;; and turn around
+    stop ]
+  ;; go in the direction where the chemical smell is strongest
 end
 
-to plot-ant-count
-  set-current-plot "num-ants"
-  ask queens [
-    let me self
-    let num-workers count workers with [mother = me]
-    let num-scouts count scouts with [mother = me]
-    create-temporary-plot-pen (word who)
-    set-plot-pen-color color
-    plotxy ticks num-workers + num-scouts
-  ]
-end
-
-to plot-average-aggresiveness
-  set-current-plot "avg-agg"
-  let agg-total 0
-  ask queens [
-    set agg-total agg-total + fight-prob
-  ]
-  create-temporary-plot-pen "data"
-  set-plot-pen-color black
-  plotxy ticks agg-total / (count queens)
-end
-
-to-report test
-  report 4
+;; sniff left and right, and go where the strongest smell is
+to uphill-nest-scent  ;; turtle procedure
+  let scent-ahead nest-scent-at-angle   0
+  let scent-right nest-scent-at-angle  45
+  let scent-left  nest-scent-at-angle -45
+  if (scent-right > scent-ahead) or (scent-left > scent-ahead)
+  [ ifelse scent-right > scent-left
+    [ rt 45 ]
+    [ lt 45 ] ]
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
-244
-272
-766
-795
+234
+292
+751
+810
 -1
 -1
-2.0
+2.64
 1
 10
 1
@@ -779,23 +420,38 @@ GRAPHICS-WINDOW
 1
 1
 1
--128
-128
--128
-128
-1
-1
+-96
+96
+-96
+96
+0
+0
 1
 ticks
 30.0
 
 SLIDER
-16
-337
-194
-370
-proportion-workers
-proportion-workers
+27
+46
+200
+79
+initial-population
+initial-population
+50
+100
+100.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+25
+94
+198
+127
+nest-diffusion
+nest-diffusion
 0
 100
 75.0
@@ -805,40 +461,25 @@ NIL
 HORIZONTAL
 
 SLIDER
-24
-47
-197
-80
-nest-diffusion
-nest-diffusion
-0
-100
-36.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-24
-94
-197
-127
+25
+141
+198
+174
 nest-evaporation
 nest-evaporation
 0
 100
-4.0
+44.0
 1
 1
 NIL
 HORIZONTAL
 
 BUTTON
-344
-220
-411
-254
+329
+246
+396
+280
 NIL
 setup
 NIL
@@ -852,10 +493,10 @@ NIL
 1
 
 BUTTON
-417
-217
-481
-251
+409
+250
+473
+284
 NIL
 go
 T
@@ -869,10 +510,10 @@ NIL
 1
 
 SLIDER
-16
-288
-204
-321
+241
+46
+429
+79
 home-dist-threshold
 home-dist-threshold
 0
@@ -885,380 +526,80 @@ HORIZONTAL
 
 TEXTBOX
 32
-14
-194
-59
-Chemical Params
+10
+182
+54
+World Params\n
 18
 0.0
 1
 
 TEXTBOX
-18
-256
-168
-278
+243
+14
+393
+36
 Ant Params
 18
 0.0
 1
 
 SLIDER
-254
-163
-426
-196
+243
+96
+451
+129
+explore-scent-threshold
+explore-scent-threshold
+0
+0.1
+5.181E-4
+0.0000001
+1
+NIL
+HORIZONTAL
+
+SLIDER
+27
+194
+199
+227
 chunk-size
 chunk-size
 10
 100
-25.0
+20.0
 5
 1
 NIL
 HORIZONTAL
 
 SLIDER
-255
-67
-465
-100
+26
+241
+236
+274
 chunk-refresh-threshold
 chunk-refresh-threshold
 0
 1000
-125.0
+50.0
 50
 1
 NIL
 HORIZONTAL
 
 SLIDER
-256
-120
-449
-153
+20
+286
+213
+319
 chunk-refresh-time
 chunk-refresh-time
 0
 10000
-2700.0
-100
-1
-NIL
-HORIZONTAL
-
-TEXTBOX
-257
-31
-407
-91
-Chunk Params
-18
-0.0
-1
-
-SLIDER
-20
-145
-192
-178
-food-diffusion
-food-diffusion
-0
-100
-4.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-21
-193
-193
-226
-food-evaporation
-food-evaporation
-0
-100
-3.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-17
-431
-189
-464
-initial-queens
-initial-queens
-0
-10
-5.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-18
-478
-191
-511
-scout-lifespan
-scout-lifespan
-0
-1000
-576.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-17
-527
-190
-560
-worker-lifespan
-worker-lifespan
-0
-1000
-576.0
-1
-1
-NIL
-HORIZONTAL
-
-PLOT
-798
-245
-998
-395
-nest-energies
-NIL
-NIL
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-
-SLIDER
-18
-576
-190
-609
-initial-nest-energy
-initial-nest-energy
-0
-3000
 1000.0
 100
-1
-NIL
-HORIZONTAL
-
-SLIDER
-19
-623
-191
-656
-food-value
-food-value
-0
-10
-8.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-19
-668
-191
-701
-birth-threshold
-birth-threshold
-0
-2000
-1000.0
-100
-1
-NIL
-HORIZONTAL
-
-SLIDER
-18
-711
-190
-744
-birth-cost
-birth-cost
-0
-20
-4.0
-1
-1
-NIL
-HORIZONTAL
-
-PLOT
-799
-418
-999
-568
-num-ants
-NIL
-NIL
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-
-SWITCH
-509
-217
-636
-250
-show-trails
-show-trails
-1
-1
--1000
-
-SLIDER
-14
-380
-186
-413
-initial-ants
-initial-ants
-0
-500
-240.0
-20
-1
-NIL
-HORIZONTAL
-
-SLIDER
-20
-755
-192
-788
-split-threshold
-split-threshold
-0
-5000
-2000.0
-100
-1
-NIL
-HORIZONTAL
-
-SLIDER
-19
-799
-191
-832
-split-distance
-split-distance
-0
-100
-65.0
-5
-1
-NIL
-HORIZONTAL
-
-PLOT
-795
-586
-995
-736
-num-kills
-NIL
-NIL
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-"default" 1.0 0 -16777216 true "" "plot num-kills"
-
-PLOT
-802
-746
-1002
-896
-avg-agg
-NIL
-NIL
-0.0
-10.0
-0.0
-10.0
-true
-false
-"" ""
-PENS
-
-SLIDER
-20
-854
-193
-887
-fight-win-bonus
-fight-win-bonus
-0
-10
-3.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-217
-863
-390
-896
-coop-both-bonus
-coop-both-bonus
-0
-10
-2.0
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-412
-864
-585
-897
-coop-one-cost
-coop-one-cost
-0
-10
-1.0
-1
 1
 NIL
 HORIZONTAL
@@ -1605,7 +946,7 @@ false
 Polygon -7500403 true true 270 75 225 30 30 225 75 270
 Polygon -7500403 true true 30 75 75 30 270 225 225 270
 @#$#@#$#@
-NetLogo 6.0.4
+NetLogo 6.3.0
 @#$#@#$#@
 @#$#@#$#@
 @#$#@#$#@
