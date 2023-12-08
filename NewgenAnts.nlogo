@@ -237,6 +237,7 @@ end
 
 ;; General setup
 to setup
+
   set scent-id-count 0
   clear-all
   setup-chunks
@@ -399,7 +400,7 @@ to start-fight [others]
         ]
       ]
       [
-        let i-coop random 100 > gen-diff / 3 * coop-mult
+        let i-coop random 100 > ((gen-diff / 3) * coop-mult)
         if i-coop
         [
           set num-coop num-coop + 1
@@ -594,16 +595,21 @@ end
 
 ;; Spawns a new colony by splitting this one
 to split-colony
-  set energy energy - 1000
-  let new-x random world-width
-  let new-y random world-height
+  set energy energy - colony-start-energy
+  show xcor
+  show ycor
+  let new-x (random (2 * split-distance) - split-distance) + xcor
+  if new-x < (world-width * -0.5 + 1) [set new-x (world-width * -0.5 + 3)]
+  if new-x > (world-width * .5 - 1) [set new-x (world-width * 0.5 - 3)]
+  let new-y random (random (2 * split-distance) - split-distance) + ycor
+  if new-y < (world-height * -0.5 + 1) [set new-y (world-height * -0.5 + 3)]
+  if new-y > (world-height * .5 - 1) [set new-y (world-height * 0.5 - 3)]
+
+  show new-x
+  show new-y
+
   let dist distancexy new-x new-y
-  while [dist > split-distance]
-  [
-    set new-x random world-width
-    set new-y random world-height
-    set dist distancexy new-x new-y
-  ]
+
   let mycolor color
   let agg-diff (random 20) - 10
   let nice-diff (random 20) - 10
@@ -622,7 +628,7 @@ to split-colony
     set ycor new-y
     set size 10
     set heading 0
-    set energy 1000
+    set energy colony-start-energy
     set scent-id scent-id-count
     set scent-id-count scent-id-count + 1
     set fight-prob new-fight-prob
@@ -630,7 +636,7 @@ to split-colony
     set ticks-left max-colony-lifespan
 
     ;;
-    set gen-point (list (random 20 + item 0 gen-point - 10)  (random 20 + item 1 gen-point - 10) (random 20 + item 2 gen-point - 10))
+    set gen-point (list (random (2 * spawn-diff) + item 0 gen-point - spawn-diff)  (random (2 * spawn-diff) + item 1 gen-point - spawn-diff) (random (2 * spawn-diff) + item 2 gen-point - spawn-diff))
     let j 0
     while [j < 3][
       ifelse item j gen-point > 100[
@@ -654,7 +660,7 @@ to split-colony
       set i i + 1
     ]
     show dist-list
-    repeat 100 [ spawn-baby ]
+    repeat colony-start-size [ spawn-baby ]
   ]
   ;; Kill 1/4 of the kids
   let matriarch self
@@ -912,21 +918,21 @@ to-report num-food
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
-247
-304
-737
-795
+217
+327
+693
+804
 -1
 -1
-3.74
+3.63
 1
 10
 1
 1
 1
 0
-1
-1
+0
+0
 1
 -64
 64
@@ -1031,7 +1037,7 @@ chunk-size
 chunk-size
 10
 100
-25.0
+10.0
 5
 1
 NIL
@@ -1060,8 +1066,8 @@ SLIDER
 chunk-refresh-time
 chunk-refresh-time
 0
-10000
-2000.0
+30000
+14500.0
 100
 1
 NIL
@@ -1116,7 +1122,7 @@ scout-lifespan
 scout-lifespan
 0
 1000
-610.0
+772.0
 1
 1
 NIL
@@ -1131,7 +1137,7 @@ worker-lifespan
 worker-lifespan
 0
 1000
-570.0
+690.0
 1
 1
 NIL
@@ -1177,8 +1183,8 @@ SLIDER
 birth-threshold
 birth-threshold
 0
-2000
-800.0
+3000
+1700.0
 100
 1
 NIL
@@ -1193,7 +1199,7 @@ birth-cost
 birth-cost
 0
 20
-4.0
+3.0
 1
 1
 NIL
@@ -1223,7 +1229,7 @@ SWITCH
 250
 show-trails
 show-trails
-0
+1
 1
 -1000
 
@@ -1392,8 +1398,8 @@ SLIDER
 food-val
 food-val
 0.5
-1.5
-1.5
+5
+2.4
 0.1
 1
 NIL
@@ -1425,8 +1431,8 @@ SLIDER
 fight-mult
 fight-mult
 0
-2
-1.3
+4
+2.0
 .1
 1
 NIL
@@ -1440,8 +1446,8 @@ SLIDER
 coop-mult
 coop-mult
 0
-2
-2.0
+5
+3.0
 .1
 1
 NIL
@@ -1457,6 +1463,51 @@ coop-amt
 0
 10
 10.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+250
+282
+422
+315
+colony-start-size
+colony-start-size
+0
+150
+21.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+234
+252
+406
+285
+colony-start-energy
+colony-start-energy
+0
+1500
+300.0
+20
+1
+NIL
+HORIZONTAL
+
+SLIDER
+723
+217
+895
+250
+spawn-diff
+spawn-diff
+1
+30
+15.0
 1
 1
 NIL
