@@ -1,7 +1,0 @@
-digraph D {
-  explore [shape=circle]
-  recruit [shape=circle]
-
-  explore -> recruit [label="find food\nhead to nest"]
-  recruit -> explore [label="back at nest\nexplore again"]
-}

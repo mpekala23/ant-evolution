@@ -1,0 +1,10 @@
+digraph D {
+  patrol [shape=circle]
+  find [shape=circle]
+  return [shape=circle]
+
+  patrol -> find [label="strong food chemical"]
+  find -> return [label="found food"]
+  find -> return [label="gave up"]
+  return -> patrol [label="close to mom"]
+}

@@ -11,24 +11,25 @@ class SimParams(NamedTuple):
     """
 
     food_evaporation: int = 3
+    home_dist_threshold: float = 5.0
     proportion_workers: int = 75
-    initial_ants: int = 240
-    initial_queens: int = 2
+    initial_ants: int = 120
+    initial_queens: int = 6
     scout_lifespan: int = 575
     worker_lifespan: int = 575
     intitial_nest_energy: float = 1000.0
-    food_val: float = 1.5
-    birth_threshold: float = 800.0
-    birth_cost: float = 4.0
-    split_threshold: float = 1600.0
-    split_distance: float = 65.0
-    fight_win_bonus: float = 2.0
-    max_colony_lifespan: float = 3000.0
-    coop_both_bonus: float = 2.5
-    coop_one_cost: float = 1.0
-    chunk_refresh_threshold: int = 125
-    chunk_refresh_time: int = 2000
-    chunk_size: int = 25
+    food_val: float = 2.0
+    birth_threshold: float = 700.0
+    birth_cost: float = 2.7
+    split_threshold: float = 1400.0
+    split_distance: float = 40.0
+    max_colony_lifespan: float = 1500.0
+    fight_mult: float = 1.0
+    coop_mult: float = 0.05
+    coop_amt: float = 0.5
+    chunk_refresh_threshold: int = 40
+    chunk_refresh_time: int = 900
+    chunk_size: int = 12
 
     def as_dict(self) -> dict[str, str]:
         fields = self._fields
@@ -38,23 +39,25 @@ class SimParams(NamedTuple):
     def from_dict(data: dict[str, str]):
         return SimParams(
             food_evaporation=int(data.get("food_evaporation", 3)),
+            home_dist_threshold=float(data.get("home_dist_threshold", 5.0)),
             proportion_workers=int(data.get("proportion_workers", 75)),
-            initial_ants=int(data.get("initial_ants", 240)),
+            initial_ants=int(data.get("initial_ants", 120)),
+            initial_queens=int(data.get("initial_queens", 6)),
             scout_lifespan=int(data.get("scout_lifespan", 575)),
             worker_lifespan=int(data.get("worker_lifespan", 575)),
             intitial_nest_energy=float(data.get("intitial_nest_energy", 1000.0)),
-            food_val=float(data.get("food_val", 1.5)),
-            birth_threshold=float(data.get("birth_threshold", 800.0)),
-            birth_cost=float(data.get("birth_cost", 4.0)),
-            split_threshold=float(data.get("split_threshold", 1600.0)),
-            split_distance=float(data.get("split_distance", 65.0)),
-            fight_win_bonus=float(data.get("fight_win_bonus", 2.0)),
-            max_colony_lifespan=float(data.get("max_colony_lifespan", 3000.0)),
-            coop_both_bonus=float(data.get("coop_both_bonus", 2.5)),
-            coop_one_cost=float(data.get("coop_one_cost", 1.0)),
-            chunk_refresh_threshold=int(data.get("chunk_refresh_threshold", 125)),
-            chunk_refresh_time=int(data.get("chunk_refresh_time", 2000)),
-            chunk_size=int(data.get("chunk_size", 25)),
+            food_val=float(data.get("food_val", 2.0)),
+            birth_threshold=float(data.get("birth_threshold", 700.0)),
+            birth_cost=float(data.get("birth_cost", 2.7)),
+            split_threshold=float(data.get("split_threshold", 1400.0)),
+            split_distance=float(data.get("split_distance", 30.0)),
+            max_colony_lifespan=float(data.get("max_colony_lifespan", 1500.0)),
+            fight_mult=float(data.get("fight_mult", 1.0)),
+            coop_mult=float(data.get("coop_mult", 0.05)),
+            coop_amt=float(data.get("coop_amt", 0.5)),
+            chunk_refresh_threshold=int(data.get("chunk_refresh_threshold", 40)),
+            chunk_refresh_time=int(data.get("chunk_refresh_time", 900)),
+            chunk_size=int(data.get("chunk_size", 12)),
         )
 
     def set_workspace(self, workspace: nl4py.NetLogoHeadlessWorkspace):
@@ -83,12 +86,8 @@ class SimState(NamedTuple):
     """
 
     tick: int
-    agg_min: float
-    agg_avg: float
-    agg_max: float
-    coop_min: float
-    coop_avg: float
-    coop_max: float
+    num_kills: int
+    num_coop: int
     num_colonies: int
     num_ants: int
     num_food: int
@@ -96,16 +95,12 @@ class SimState(NamedTuple):
     @staticmethod
     def from_tuple(data: Any) -> "SimState":
         return SimState(
-            data[0],
-            data[1],
-            data[2],
-            data[3],
-            data[4],
-            data[5],
-            data[6],
-            int(data[7]),
-            int(data[8]),
-            int(data[9]),
+            int(data[0]),
+            int(data[1]),
+            int(data[2]),
+            int(data[3]),
+            int(data[4]),
+            int(data[5]),
         )
 
     @staticmethod
@@ -116,12 +111,8 @@ class SimState(NamedTuple):
         Adds reporters to a workspace and then runs, returning the data from the ticks
         """
         measures = [
-            "min-aggresiveness",
-            "average-aggresiveness",
-            "max-aggresiveness",
-            "min-cooperation",
-            "average-cooperation",
-            "max-cooperation",
+            "num-kills",
+            "num-coop",
             "num-queens",
             "num-ants",
             "num-food",
@@ -132,25 +123,17 @@ class SimState(NamedTuple):
             stop_at_tick=tick_range.stop,
             interval_ticks=tick_range.step,
         )
-        min_aggs = results[0]
-        avg_aggs = results[1]
-        max_aggs = results[2]
-        min_coop = results[3]
-        avg_coop = results[4]
-        max_coop = results[5]
-        num_queens = results[6]
-        num_ants = results[7]
-        num_food = results[8]
+        num_kills = results[0]
+        num_coop = results[1]
+        num_queens = results[2]
+        num_ants = results[3]
+        num_food = results[4]
 
         clean_results = []
         for data in zip(
             tick_range,
-            min_aggs,
-            avg_aggs,
-            max_aggs,
-            min_coop,
-            avg_coop,
-            max_coop,
+            num_kills,
+            num_coop,
             num_queens,
             num_ants,
             num_food,
