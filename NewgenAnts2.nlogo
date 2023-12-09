@@ -246,6 +246,7 @@ end
 
 ;; General setup
 to setup
+
   set scent-id-count 0
   clear-all
   setup-chunks
@@ -396,7 +397,11 @@ to start-fight [others]
         ]
       ]
       [
+<<<<<<< HEAD:NewgenAnts2.nlogo
         let i-coop random 100 > gen-diff / (coop-mult + 0.1)
+=======
+        let i-coop random 100 > ((gen-diff / 3) * coop-mult)
+>>>>>>> a264df05e332a64fda4a6222e9019a1e9d6dbfd0:NewgenAnts.nlogo
         if i-coop
         [
           set num-coop num-coop + 1
@@ -594,6 +599,7 @@ end
 
 ;; Spawns a new colony by splitting this one
 to split-colony
+<<<<<<< HEAD:NewgenAnts2.nlogo
   set energy energy - 500
   let new-x xcor + (random split-distance - (split-distance / 2))
   let new-y ycor + (random split-distance - (split-distance / 2))
@@ -613,6 +619,23 @@ to split-colony
   [
     set new-y -1 * world-height / 2 + 5
   ]
+=======
+  set energy energy - colony-start-energy
+  show xcor
+  show ycor
+  let new-x (random (2 * split-distance) - split-distance) + xcor
+  if new-x < (world-width * -0.5 + 1) [set new-x (world-width * -0.5 + 3)]
+  if new-x > (world-width * .5 - 1) [set new-x (world-width * 0.5 - 3)]
+  let new-y random (random (2 * split-distance) - split-distance) + ycor
+  if new-y < (world-height * -0.5 + 1) [set new-y (world-height * -0.5 + 3)]
+  if new-y > (world-height * .5 - 1) [set new-y (world-height * 0.5 - 3)]
+
+  show new-x
+  show new-y
+
+  let dist distancexy new-x new-y
+
+>>>>>>> a264df05e332a64fda4a6222e9019a1e9d6dbfd0:NewgenAnts.nlogo
   let mycolor color
   let agg-diff (random 20) - 10
   let nice-diff (random 20) - 10
@@ -621,11 +644,17 @@ to split-colony
     set ycor new-y
     set size 10
     set heading 0
-    set energy 1000
+    set energy colony-start-energy
     set scent-id scent-id-count
     set scent-id-count scent-id-count + 1
     set ticks-left max-colony-lifespan
+<<<<<<< HEAD:NewgenAnts2.nlogo
     set gen-point (list ((random 20 + item 0 gen-point - 10) mod 100)  ((random 20 + item 1 gen-point - 10) mod 100))
+=======
+
+    ;;
+    set gen-point (list (random (2 * spawn-diff) + item 0 gen-point - spawn-diff)  (random (2 * spawn-diff) + item 1 gen-point - spawn-diff) (random (2 * spawn-diff) + item 2 gen-point - spawn-diff))
+>>>>>>> a264df05e332a64fda4a6222e9019a1e9d6dbfd0:NewgenAnts.nlogo
     let j 0
     while [j < 2]
     [
@@ -656,7 +685,8 @@ to split-colony
       ]
       set i i + 1
     ]
-    repeat 100 [ spawn-baby ]
+    show dist-list
+    repeat colony-start-size [ spawn-baby ]
   ]
   ;; Kill 1/4 of the kids
   let matriarch self
@@ -872,13 +902,13 @@ end
 
 @#$#@#$#@
 GRAPHICS-WINDOW
-247
-304
-736
-794
+217
+327
+693
+804
 -1
 -1
-3.74
+3.63
 1
 10
 1
@@ -990,9 +1020,15 @@ SLIDER
 chunk-size
 chunk-size
 10
+<<<<<<< HEAD:NewgenAnts2.nlogo
 30
 12.0
 2
+=======
+100
+10.0
+5
+>>>>>>> a264df05e332a64fda4a6222e9019a1e9d6dbfd0:NewgenAnts.nlogo
 1
 NIL
 HORIZONTAL
@@ -1020,8 +1056,8 @@ SLIDER
 chunk-refresh-time
 chunk-refresh-time
 0
-10000
-900.0
+30000
+14500.0
 100
 1
 NIL
@@ -1076,7 +1112,7 @@ scout-lifespan
 scout-lifespan
 0
 1000
-610.0
+772.0
 1
 1
 NIL
@@ -1091,7 +1127,7 @@ worker-lifespan
 worker-lifespan
 0
 1000
-570.0
+690.0
 1
 1
 NIL
@@ -1137,8 +1173,13 @@ SLIDER
 birth-threshold
 birth-threshold
 0
+<<<<<<< HEAD:NewgenAnts2.nlogo
 2000
 700.0
+=======
+3000
+1700.0
+>>>>>>> a264df05e332a64fda4a6222e9019a1e9d6dbfd0:NewgenAnts.nlogo
 100
 1
 NIL
@@ -1152,9 +1193,9 @@ SLIDER
 birth-cost
 birth-cost
 0
-10
-2.7
-0.1
+20
+3.0
+1
 1
 NIL
 HORIZONTAL
@@ -1307,8 +1348,8 @@ SLIDER
 food-val
 food-val
 0.5
-2.5
-2.0
+5
+2.4
 0.1
 1
 NIL
@@ -1340,14 +1381,36 @@ SLIDER
 fight-mult
 fight-mult
 0
-3
-1.0
+4
+2.0
 .1
 1
 NIL
 HORIZONTAL
 
 SLIDER
+1039
+291
+1211
+324
+coop-mult
+coop-mult
+0
+5
+3.0
+.1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+602
+265
+774
+298
+coop-amt
+coop-amt
+0
 10
 799
 182
@@ -1387,6 +1450,51 @@ run-ix
 0
 100
 0.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+250
+282
+422
+315
+colony-start-size
+colony-start-size
+0
+150
+21.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+234
+252
+406
+285
+colony-start-energy
+colony-start-energy
+0
+1500
+300.0
+20
+1
+NIL
+HORIZONTAL
+
+SLIDER
+723
+217
+895
+250
+spawn-diff
+spawn-diff
+1
+30
+15.0
 1
 1
 NIL
