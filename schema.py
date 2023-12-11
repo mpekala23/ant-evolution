@@ -18,7 +18,7 @@ class SimParams(NamedTuple):
     scout_lifespan: int = 575
     worker_lifespan: int = 575
     intitial_nest_energy: float = 1000.0
-    food_val: float = 2.0
+    food_val: float = 1.0
     birth_threshold: float = 700.0
     birth_cost: float = 2.7
     split_threshold: float = 1400.0
@@ -28,7 +28,7 @@ class SimParams(NamedTuple):
     coop_mult: float = 0.05
     coop_amt: float = 0.5
     chunk_refresh_threshold: int = 40
-    chunk_refresh_time: int = 900
+    chunk_refresh_time: int = 500
     chunk_size: int = 12
 
     def as_dict(self) -> dict[str, str]:

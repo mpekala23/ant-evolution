@@ -8,7 +8,8 @@ import parser
 
 
 nl4py.initialize("/Applications/NetLogo 6.0.4")
-model = "./NewgenAnts.nlogo"
+# model = "./NewgenAnts.nlogo"
+model = "./NewgenAnts3.nlogo"
 
 
 def init(model_path):
